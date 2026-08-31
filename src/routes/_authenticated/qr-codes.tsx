@@ -1,12 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useState } from "react";
 import { ChevronLeft, Printer } from "lucide-react";
 import QRCode from "qrcode";
 
 import { Button } from "@/components/ui/button";
-import { getTableQrCodes } from "@/lib/table-qr.functions";
+import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/_authenticated/qr-codes")({
   head: () => ({
@@ -30,34 +29,53 @@ export const Route = createFileRoute("/_authenticated/qr-codes")({
   component: QrCodesPage,
 });
 
+async function fetchTableQRCodes() {
+  const { data, error } = await supabase
+    .from("restaurant_tables")
+    .select("id, table_number, qr_code, seats, is_active")
+    .eq("is_active", true)
+    .order("table_number", { ascending: true });
+
+  if (error) {
+    console.error("Error fetching tables:", error);
+    return [];
+  }
+  return data || [];
+}
+
 function QrCodesPage() {
-  const fetchCodes = useServerFn(getTableQrCodes);
   const { data: tables = [] } = useQuery({
     queryKey: ["table-qr-codes"],
-    queryFn: () => fetchCodes(),
+    queryFn: fetchTableQRCodes,
   });
+
   const [origin, setOrigin] = useState("");
   const [codes, setCodes] = useState<Record<string, string>>({});
 
-  useEffect(() => setOrigin(window.location.origin), []);
+  useEffect(() => {
+    setOrigin(window.location.origin);
+  }, []);
 
   useEffect(() => {
     if (!origin || tables.length === 0) return;
     let cancelled = false;
+
     (async () => {
       const entries = await Promise.all(
         tables.map(async (table) => {
-          const url = `${origin}/menu?table=${table.tableNumber}&code=${table.token}`;
+          // Uses table_number and qr_code properties matching database columns
+          const url = `${origin}/table/${table.table_number}?code=${table.qr_code}`;
           const dataUrl = await QRCode.toDataURL(url, {
             width: 512,
             margin: 1,
             errorCorrectionLevel: "M",
           });
           return [table.id, dataUrl] as const;
-        }),
+        })
       );
       if (!cancelled) setCodes(Object.fromEntries(entries));
     })();
+
     return () => {
       cancelled = true;
     };
@@ -87,19 +105,19 @@ function QrCodesPage() {
 
         <div className="mt-8 grid gap-5 sm:grid-cols-2 md:grid-cols-3 print:grid-cols-3">
           {tables.map((table) => {
-            const url = `${origin}/menu?table=${table.tableNumber}&code=${table.token}`;
+            const url = `${origin}/table/${table.table_number}?code=${table.qr_code}`;
             return (
               <div
                 key={table.id}
                 className="break-inside-avoid rounded-2xl border border-border bg-card p-4 text-center shadow-soft"
               >
-                <p className="font-display text-xl font-semibold">Table {table.tableNumber}</p>
-                <p className="text-[11px] text-muted-foreground">{table.seats} seats</p>
+                <p className="font-display text-xl font-semibold">Table {table.table_number}</p>
+                <p className="text-[11px] text-muted-foreground">{table.seats ?? 4} seats</p>
                 <div className="mx-auto mt-3 aspect-square w-full max-w-[190px] overflow-hidden rounded-xl bg-background p-2">
                   {codes[table.id] ? (
                     <img
                       src={codes[table.id]}
-                      alt={`Secure QR code for table ${table.tableNumber}`}
+                      alt={`Secure QR code for table ${table.table_number}`}
                       className="size-full object-contain"
                     />
                   ) : (
@@ -107,7 +125,7 @@ function QrCodesPage() {
                   )}
                 </div>
                 <p className="mt-3 text-[11px] font-medium text-muted-foreground">
-                  Scan to order · Table {table.tableNumber}
+                  Scan to order · Table {table.table_number}
                 </p>
                 <p className="mt-1 break-all text-[10px] text-muted-foreground/70 print:hidden">
                   {url}
