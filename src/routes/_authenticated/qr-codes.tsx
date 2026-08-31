@@ -63,12 +63,18 @@ function QrCodesPage() {
     (async () => {
       const entries = await Promise.all(
         tables.map(async (table) => {
-          // Uses table_number and qr_code properties matching database columns
-          const url = `${origin}/table/${table.table_number}?code=${table.qr_code}`;
-          const dataUrl = await QRCode.toDataURL(url, {
+          // Construct URL using standard URL API to prevent encoding glitches
+          const targetUrl = new URL(`/table/${table.table_number}`, origin);
+          targetUrl.searchParams.set("code", table.qr_code);
+
+          const dataUrl = await QRCode.toDataURL(targetUrl.toString(), {
             width: 512,
-            margin: 1,
-            errorCorrectionLevel: "M",
+            margin: 2, // Increased margin (quiet zone) for reliable phone camera detection
+            errorCorrectionLevel: "H", // High error correction level for sharp pattern recognition
+            color: {
+              dark: "#000000",
+              light: "#FFFFFF",
+            },
           });
           return [table.id, dataUrl] as const;
         })
@@ -113,7 +119,7 @@ function QrCodesPage() {
               >
                 <p className="font-display text-xl font-semibold">Table {table.table_number}</p>
                 <p className="text-[11px] text-muted-foreground">{table.seats ?? 4} seats</p>
-                <div className="mx-auto mt-3 aspect-square w-full max-w-[190px] overflow-hidden rounded-xl bg-background p-2">
+                <div className="mx-auto mt-3 aspect-square w-full max-w-[190px] overflow-hidden rounded-xl bg-white p-2">
                   {codes[table.id] ? (
                     <img
                       src={codes[table.id]}
